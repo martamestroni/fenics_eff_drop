@@ -1,17 +1,16 @@
 # Initializing parameters
 t = 0 # Start time
-T = 2 # End time
+T = 300 # End time
 num_steps = 20 # Number of time steps
 dt = (T-t)/num_steps # Time step size
 alpha = 3
 beta = 1.2
 R=1
-B_value =100
-
+B_value =10000000
 # Diffusion coefficient
-D_=0.1
+D_=0.001
 
-
+from re import X
 import numpy as np
 import meshio
 import gmsh
@@ -21,7 +20,7 @@ from dolfinx import mesh, fem
 from dolfinx.io import XDMFFile, gmshio
 from dolfinx.fem import FunctionSpace, Function, Constant, locate_dofs_geometrical,locate_dofs_topological, dirichletbc, form, Expression
 import dolfinx.mesh
-import ufl 
+import ufl
 from mpi4py import MPI
 from petsc4py import PETSc
 from petsc4py.PETSc import ScalarType
@@ -107,17 +106,55 @@ domain, cell_markers, facet_markers = gmshio.read_from_msh("circle.msh", MPI.COM
 
 V = fem.FunctionSpace(domain, ("CG", 1))
 
+# You can solve either with (1)analytcal solution or (2) initial condition
+# (1)defining exact solution
+# class exact_solution():
+#     def __init__(self, alpha, beta, t):
+#         self.alpha = alpha
+#         self.beta = beta
+#         self.t = t
+#     def __call__(self, x):
+#         return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t
+# u_exact = exact_solution(alpha, beta, t)
 
-# defining exact solution
-class exact_solution():
-    def __init__(self, alpha, beta, t):
-        self.alpha = alpha
-        self.beta = beta
-        self.t = t
-    def __call__(self, x):
-        return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t
-u_exact = exact_solution(alpha, beta, t)
+# (2) setting initial conditions
+# class initial_condition:
+#     def eval_cell(self,value, x):
+#         if (np.sqrt(x[0]**2+x[1]**2)) == 1:
+#             value[0]=100
+#         else:
+#             value[0]=0
+# # u_exact = initial_condition(x,R,B_value)
+# u_D = fem.Function(V)
+# u_D.interpolate(initial_condition())
+# x = V.tabulate_dof_coordinates()
+# for i in x:
+#     if on_boundary(x):
+#         # print(np.sqrt(i[0]**2+i[1]**2))
+#         u_n.vector.setValueLocal(i, 1000)
+#     else:
+#         # print(np.sqrt(i[0]**2+i[1]**2))
+#         u_n.vector.setValueLocal(i, 0.0)
 
+
+# def on_boundary(x):
+#     return np.isclose(np.sqrt(x[0]**2 + x[1]**2), 1)
+# bound = fem.locate_dofs_geometrical(V, on_boundary)
+
+x= ufl.SpatialCoordinate(domain)
+
+# p = python3 2D_Diffusion_Circle.py
+# expr = fem.Expression(p, V.element.interpolation_points())
+u_n = fem.Function(V)
+u_n.interpolate(lambda x: (B_value*np.trunc(np.sqrt(x[0]**2+x[1]**2))))
+# x = V.tabulate_dof_coordinates()
+# for i in x:
+#     if np.sqrt(x[0]**2 + x[1]**2)==1:
+#         # print(np.sqrt(i[0]**2+i[1]**2))
+#         u_n.vector.setValueLocal(i, 1000)
+
+
+        
 # BOUNDARY CONDITION for analytical solution
 # u_D = fem.Function(V)
 # u_D.interpolate(u_exact)
@@ -128,7 +165,6 @@ u_exact = exact_solution(alpha, beta, t)
 # bc = fem.dirichletbc(u_D, fem.locate_dofs_topological(V, fdim, boundary_facets))
 
 # BOUNDARY condtion settng Neumann at the center and boarders
-x= ufl.SpatialCoordinate(domain)
 boundaries =[(1, lambda x: np.isclose(np.sqrt(x[0]**2+x[1]**2),R)),
             (2, lambda x: np.isclose(np.sqrt(x[0]**2+x[1]**2),0))]
 
@@ -152,8 +188,8 @@ ds = ufl.Measure("ds", domain=domain, subdomain_data=facet_tag)
 
 
 # DEFINIG VARIATIONAL FORMULATION
-u_n = fem.Function(V)
-u_n.interpolate(u_exact)
+# u_n = fem.Function(V)
+# u_n.interpolate(u_exact)
 
 # in case of analytical solution heat
 # f = fem.Constant(domain, beta - 2 - 2 * alpha)
@@ -180,7 +216,7 @@ class BoundaryCondition():
             u_no.interpolate(values)
             facets = facet_tag.find(marker)
             dofs = locate_dofs_topological(V, fdim, facets)
-            self._bc = dirichletbc(u_D, dofs)
+            self._bc = dirichletbc(u_no, dofs)
         elif type == "Neumann":
                 self._bc = ufl.inner(values, v) * ds(marker)
         elif type == "Robin":
@@ -227,7 +263,7 @@ xdmf.write_function(u_n, t)
 
 for n in range(num_steps):
     # Update Diriclet boundary condition 
-    u_exact.t+=dt
+    # u_exact.t+=dt
     # u_D.interpolate(u_exact)
     
     # Update the right hand side reusing the initial vector
